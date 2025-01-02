@@ -1,12 +1,18 @@
 {
   "name": "__MSG_app_name__",
   "description": "__MSG_app_desc__",
-  "version": "1.40",
+  "version": "1.41",
   "default_locale": "en",
   "manifest_version": 3,
   "icons": {
     "16": "/icon/icon16.png",
     "128": "/icon/icon128.png"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "image-viewer@local.org",
+      "strict_min_version": "58.0"
+    }
   },
   "permissions": ["storage", "contextMenus", "scripting", "webNavigation"],
   "host_permissions": ["*://*/*", "file:///*"],
