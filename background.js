@@ -122,7 +122,7 @@ async function getImageLocalRealSize(id, src) {
   srcLocalRealSizeMap.set(src, promise)
   return promise
 }
-async function fetchImage(src) {
+async function fetchDataUrl(src) {
   const release = await semaphore.acquire()
   try {
     const res = await fetch(src, {signal: AbortSignal.timeout(10000)})
@@ -144,7 +144,7 @@ async function getDataUrl(src) {
   const cache = srcDataUrlMap.get(src)
   if (cache !== undefined) return cache
 
-  const promise = fetchImage(src)
+  const promise = fetchDataUrl(src)
   srcDataUrlMap.set(src, promise)
   return promise
 }
@@ -459,10 +459,10 @@ function addMessageHandler() {
         })()
         return true
       }
-      case 'request_cors_image': {
+      case 'request_cors_url': {
         ;(async () => {
           const release = await semaphore.acquire()
-          const res = await fetch(request.src)
+          const res = await fetch(request.url)
           release()
           const blob = await res.blob()
           const reader = new FileReader()
@@ -470,7 +470,7 @@ function addMessageHandler() {
             reader.onload = () => resolve(reader.result)
             reader.readAsDataURL(blob)
           })
-          const mime = res.headers.get('content-type').split(';').at(0) || 'image/jpeg'
+          const mime = res.headers.get('content-type').split(';')[0] || 'image/jpeg'
           sendResponse([dataUrl, mime])
         })()
         return true
