@@ -7,17 +7,8 @@ window.ImageViewerUtils = (function () {
     }
   }
 
-  // attr unlazy
-  const passList = new Set(['class', 'style', 'src', 'srcset', 'alt', 'title', 'loading', 'crossorigin', 'width', 'height', 'max-width', 'max-height', 'sizes', 'onerror', 'data-error'])
-  const urlRegex = /(?:https?:\/)?\/\S+/g
-  const protocol = location.protocol
-  const origin = location.origin + '/'
-  const srcBitSizeMap = new Map()
-  const srcRealSizeMap = new Map()
-  const badImageSet = new Set(['', 'about:blank'])
-  const corsHostSet = new Set()
+  // parallel fetch
   const semaphore = (() => {
-    // parallel fetch
     let activeCount = 0
     const maxConcurrent = 32
     const queue = []
@@ -46,6 +37,19 @@ window.ImageViewerUtils = (function () {
       }
     }
   })()
+
+  // attr unlazy
+  const passList = new Set(['class', 'style', 'src', 'srcset', 'alt', 'title', 'loading', 'crossorigin', 'width', 'height', 'max-width', 'max-height', 'sizes', 'onerror', 'data-error'])
+  const urlRegex = /(?:https?:\/)?\/\S+/g
+  const protocol = location.protocol
+  const origin = location.origin + '/'
+
+  // image cache
+  const pseudoImageDataList = []
+  const badImageSet = new Set(['', 'about:blank'])
+  const corsHostSet = new Set()
+  const srcBitSizeMap = new Map()
+  const srcRealSizeMap = new Map()
 
   // unlazy state
   let disableImageUnlazy = false
@@ -137,6 +141,7 @@ window.ImageViewerUtils = (function () {
     return key && ctrl && alt && shift
   }
 
+  // string search
   const cachedExtensionMatch = (function () {
     const extensionRegex = /(.*?[=.](?:jpeg|jpg|png|gif|webp|bmp|tiff|avif))(?!\/)/i
     const matchCache = new Map()
@@ -263,13 +268,14 @@ window.ImageViewerUtils = (function () {
     }
   })()
 
+  // check function
+  function isImageViewerExist() {
+    return document.body.classList.contains('iv-attached')
+  }
   function isLazyClass(className) {
     if (className === '') return false
     const lower = className.toLowerCase()
     return lower.includes('lazy') || lower.includes('loading')
-  }
-  function isImageViewerExist() {
-    return document.body.classList.contains('iv-attached')
   }
   function isPromiseComplete(promise) {
     const symbol = Symbol('check')
@@ -281,6 +287,7 @@ window.ImageViewerUtils = (function () {
     return isPromiseComplete(promise)
   }
 
+  // dom search
   function deepQuerySelectorAll(target, tagName, selector) {
     const result = []
     const stack = [target]
@@ -325,52 +332,6 @@ window.ImageViewerUtils = (function () {
       return container || document.documentElement
     }
   })()
-
-  function getDomUrl(dom) {
-    const tag = dom.tagName
-    if (tag === 'IMG') return dom.currentSrc || dom.src
-    if (tag === 'VIDEO') return dom.poster
-    const backgroundImage = window.getComputedStyle(dom).backgroundImage
-    const bgList = backgroundImage.split(', ').filter(bg => bg.startsWith('url') && !bg.endsWith('.svg")'))
-    return bgList.length !== 0 ? bgList[0].slice(5, -2) : ''
-  }
-  function createImageIndexSearcher(srcList) {
-    function searchIndex(src) {
-      const index = srcIndexMap.get(src)
-      if (index !== undefined) return index
-      const rawIndex = srcIndexMap.get(getRawUrl(src))
-      if (index !== undefined) return rawIndex
-      const filename = getFilename(src)
-      const filenameIndex = srcIndexMap.get(filename)
-      if (filenameIndex !== undefined) return filenameIndex
-      return -1
-    }
-    function updateCache(srcList) {
-      for (let i = lastLength; i < srcList.length; i++) {
-        srcIndexMap.set(srcList[i], i)
-        // skip same filename
-        const filename = getFilename(srcList[i])
-        if (repeatFilename.has(filename) || srcIndexMap.has(filename)) {
-          repeatFilename.add(filename)
-          srcIndexMap.delete(filename)
-        } else {
-          srcIndexMap.set(filename, i)
-        }
-      }
-      lastLength = srcList.length
-    }
-
-    // assumes previous src unchange
-    let lastLength = 0
-    const srcIndexMap = new Map()
-    const repeatFilename = new Set()
-    updateCache(srcList)
-
-    return {
-      searchIndex: searchIndex,
-      updateCache: updateCache
-    }
-  }
 
   // wrapper size
   function isOneToOne(wrapperList, imageCountList, rawWidth, rawHeight, wrapperWidth, wrapperHeight) {
@@ -443,10 +404,10 @@ window.ImageViewerUtils = (function () {
     const getRefSize = (sizeList, domSize, optionSize) => Math.min(...sizeList.filter(s => s * 1.5 >= domSize || s * 1.2 >= optionSize))
 
     // treat long size as width
-    const [large, small] = domWidth > domHeight ? [domWidth, domHeight] : [domHeight, domWidth]
-    const [optionLarge, optionSmall] = options.minWidth > options.minHeight ? [options.minWidth, options.minHeight] : [options.minHeight, options.minWidth]
-    const finalWidth = useMinSize ? getMinSize(rawWidth) : useHalfSize ? getHalfSize(rawWidth, optionLarge) : getRefSize(wrapperWidth, large, optionLarge)
-    const finalHeight = useMinSize ? getMinSize(rawHeight) : useHalfSize ? getHalfSize(rawHeight, optionSmall) : getRefSize(wrapperHeight, small, optionSmall)
+    const [long, short] = domWidth > domHeight ? [domWidth, domHeight] : [domHeight, domWidth]
+    const [optionLong, optionShort] = options.minWidth > options.minHeight ? [options.minWidth, options.minHeight] : [options.minHeight, options.minWidth]
+    const finalWidth = useMinSize ? getMinSize(rawWidth) : useHalfSize ? getHalfSize(rawWidth, optionLong) : getRefSize(wrapperWidth, long, optionLong)
+    const finalHeight = useMinSize ? getMinSize(rawHeight) : useHalfSize ? getHalfSize(rawHeight, optionShort) : getRefSize(wrapperHeight, short, optionShort)
 
     // not allow size below 50 to prevent icon
     const finalSize = Math.max(useMinSize ? 0 : 50, Math.min(finalWidth, finalHeight))
@@ -482,38 +443,94 @@ window.ImageViewerUtils = (function () {
     const domList = deepQuerySelectorAll(container, tagName, selector, options)
     const targetDom = tagName === 'img' ? domList.filter(img => !img.src.startsWith('data')) : domList
 
-    let [minWidth, minHeight] = domWidth > domHeight ? [domWidth, domHeight] : [domHeight, domWidth]
+    const widthList = []
+    const heightList = []
     for (const dom of targetDom) {
       const {width, height} = dom.getBoundingClientRect()
       if (width === 0 || height === 0) continue
-      const [large, small] = width > height ? [width, height] : [height, width]
-      if (large * 1.5 >= minWidth && small * 1.5 > minHeight) {
-        minWidth = Math.min(domWidth, large)
-        minHeight = Math.min(domWidth, small)
+      widthList.push(width)
+      heightList.push(height)
+    }
+
+    // use rect size
+    const useWeightSize = heightList.every(h => h === domHeight)
+    if (useWeightSize) {
+      const targetWidth = Math.min(...widthList) - 3
+      options.minWidth = Math.min(targetWidth, options.minWidth)
+      options.minHeight = Math.min(domHeight, options.minHeight)
+      return
+    }
+    const useHeightSize = widthList.every(w => w === domWidth)
+    if (useHeightSize) {
+      const targetHeight = Math.min(...heightList) - 3
+      options.minWidth = Math.min(domWidth, options.minWidth)
+      options.minHeight = Math.min(targetHeight, options.minHeight)
+      return
+    }
+
+    // use ref size
+    const refSizeList = []
+    for (let i = 0; i < widthList.length; i++) {
+      const width = widthList[i]
+      const height = heightList[i]
+      refSizeList.push(width > height ? [width, height] : [height, width])
+    }
+    refSizeList.sort((a, b) => b[0] + b[1] - a[0] - a[1])
+
+    const [maxLong, maxShort] = domWidth > domHeight ? [domWidth, domHeight] : [domHeight, domWidth]
+    const refIndex = refSizeList.findIndex(size => size[0] === maxLong && size[1] === maxShort)
+    const factor = 1.2
+    let minLong = maxLong / factor
+    let minShort = maxShort / factor
+    for (let i = refIndex + 1; i < refSizeList.length; i++) {
+      const [long, short] = refSizeList[i]
+      if (short >= minShort && long >= minLong) {
+        minLong = Math.min(long / factor, minLong)
+        minShort = Math.min(short / factor, minShort)
       }
     }
-    options.minWidth = Math.min(minWidth - 3, options.minWidth)
-    options.minHeight = Math.min(minHeight - 3, options.minHeight)
+
+    const finalSize = Math.min(minLong, minShort) * factor - 3
+    options.minWidth = Math.min(finalSize, options.minWidth)
+    options.minHeight = Math.min(finalSize, options.minHeight)
   }
 
   // scroll unlazy
   async function slowScrollThoughDocument(currentX, currentY) {
     if (!isImageViewerExist()) return
-    const imageCount = ImageViewer('get_image_list').length
-    const startTime = Date.now()
-    const haveNewImage = () => {
-      if (Date.now() - startTime < 5000) return true
-      return imageCount !== ImageViewer('get_image_list').length
-    }
+
+    const haveNewImage = (function () {
+      const imageCount = ImageViewer('get_image_list').length
+      let changed = true
+      setTimeout(() => (changed = false), 5000)
+      return () => changed || (changed = imageCount !== ImageViewer('get_image_list').length)
+    })()
 
     const container = getMainContainer()
     const totalHeight = container.scrollHeight
-    let currTop = -1
     container.scrollTo(0, 0)
+
+    const expectedCapacity = totalHeight / 400
+    const waitScrollComplete = async () => {
+      const imageCount = ImageViewer('get_image_list').length
+      if (imageCount < expectedCapacity) {
+        await new Promise(resolve => setTimeout(resolve, 500))
+        return
+      }
+      let tempTop = -1
+      while (tempTop !== container.scrollTop) {
+        tempTop = container.scrollTop
+        await new Promise(resolve => setTimeout(resolve, 50))
+      }
+      const waitTime = ImageViewer('get_image_list').length / 10
+      await new Promise(resolve => setTimeout(resolve, waitTime))
+    }
+
+    let currTop = -1
     while (currTop !== container.scrollTop && currTop < totalHeight * 3 && haveNewImage() && isImageViewerExist()) {
       currTop = container.scrollTop
       container.scrollBy({top: window.innerHeight * 2, behavior: 'smooth'})
-      await new Promise(resolve => setTimeout(resolve, 500))
+      await waitScrollComplete()
     }
     if (isImageViewerExist()) container.scrollTo(currentX, currentY)
   }
@@ -523,12 +540,8 @@ window.ImageViewerUtils = (function () {
     const scrollDelta = window.innerHeight * 1.5
     let top = 0
     while (top < totalHeight && isImageViewerExist()) {
-      container.scrollTo(currentX, top)
       top += scrollDelta
-      await new Promise(resolve => setTimeout(resolve, 150))
-    }
-    if (isImageViewerExist()) {
-      container.scrollTo(currentX, totalHeight)
+      container.scrollTo(currentX, top)
       await new Promise(resolve => setTimeout(resolve, 150))
     }
     container.scrollTo(currentX, currentY)
@@ -884,8 +897,8 @@ window.ImageViewerUtils = (function () {
         .then(updateSize)
         .catch(error => {
           if (error.name !== 'TimeoutError') corsHostSet.add(url.hostname)
-          if (url.hostname !== location.hostname) return 0
-          safeSendMessage({msg: 'get_size', url: href}).then(updateSize)
+          if (url.hostname !== location.hostname) updateSize(0)
+          else safeSendMessage({msg: 'get_size', url: href}).then(updateSize)
         })
     })
 
@@ -987,7 +1000,7 @@ window.ImageViewerUtils = (function () {
 
   // unlazy main function
   function getUnlazyAttrList(img) {
-    const src = img.currentSrc
+    const src = img.currentSrc || img.src
     const rawUrl = getRawUrl(src)
     const attrList = []
 
@@ -1156,30 +1169,6 @@ window.ImageViewerUtils = (function () {
   }
 
   // before unlazy
-  async function createUnlazyRace(options) {
-    // slow connection alert
-    if (lastUnlazyTask === null) {
-      setTimeout(() => {
-        if (unlazyFlag) return
-        const unlazyList = deepQuerySelectorAll(document.body, 'IMG', 'img:not([iv-image])')
-        const stillLoading = [...unlazyList].some(img => !img.complete && img.loading !== 'lazy')
-        if (stillLoading) {
-          console.log('Slow connection, images still loading')
-          alert('Slow connection, images still loading')
-        }
-      }, 10000)
-    }
-
-    // set timeout for unlazy
-    const unlazyComplete = await isPromiseComplete(lastUnlazyTask)
-    if (unlazyComplete) {
-      const clone = structuredClone(options)
-      lastUnlazyTask = simpleUnlazyImage(clone)
-    }
-    const timeout = new Promise(resolve => setTimeout(resolve, 500))
-    const race = Promise.race([lastUnlazyTask, timeout])
-    return race
-  }
   function processLazyPlaceholder() {
     const lazySrcList = [...document.getElementsByTagName('img')]
       .filter(image => image.src && (image.naturalWidth + image.naturalHeight < 16 || image.src.endsWith('.gif') || isLazyClass(image.className)))
@@ -1216,6 +1205,45 @@ window.ImageViewerUtils = (function () {
       image.dispatchEvent(leaveEvent)
     }
   }
+  async function checkPseudoElement(href) {
+    const [dataUrl] = await safeSendMessage({msg: 'request_cors_url', url: href})
+    const res = await fetch(dataUrl)
+    const cssText = await res.text()
+
+    const matchList = cssText
+      .replaceAll(/[\r\n ]/g, '')
+      .split('}')
+      .map(str => (str.startsWith('@media') ? str.split('{')[1] : str))
+      .map(str => str.match(/:(?:before|after).+background-image:url\((.+)\)/))
+      .filter(Boolean)
+
+    for (const match of matchList) {
+      const [selector, position] = match.input
+        .split('{')[0]
+        .split(',')
+        .filter(s => s.includes(':'))[0]
+        .split(':')
+      const domList = document.querySelectorAll(selector)
+      if (domList.length === 0) continue
+
+      const dom = domList[0]
+      const pseudoCss = window.getComputedStyle(dom, `::${position}`)
+      if (pseudoCss.content === 'none') continue
+
+      const url = match[1]
+      const realSize = await getImageRealSize(url)
+      const width = Math.min(realSize, Number(pseudoCss.width.slice(0, -2)))
+      const height = Math.min(realSize, Number(pseudoCss.height.slice(0, -2)))
+      pseudoImageDataList.push([url, dom, width, height])
+    }
+  }
+  function checkPseudoCss() {
+    pseudoImageDataList.length = 0
+    for (const sheet of document.styleSheets) {
+      const href = sheet.href
+      if (href) checkPseudoElement(href)
+    }
+  }
   function getDomainSetting(rawDomainList) {
     const domainList = []
     const regexList = []
@@ -1230,10 +1258,35 @@ window.ImageViewerUtils = (function () {
     result ||= regexList.some(regex => regex.test(location.href))
     return result
   }
+  async function createUnlazyRace(options) {
+    // slow connection alert
+    if (lastUnlazyTask === null) {
+      setTimeout(() => {
+        if (unlazyFlag) return
+        const unlazyList = deepQuerySelectorAll(document.body, 'IMG', 'img:not([iv-image])')
+        const stillLoading = [...unlazyList].some(img => !img.complete && img.loading !== 'lazy')
+        if (stillLoading) {
+          console.log('Slow connection, images still loading')
+          alert('Slow connection, images still loading')
+        }
+      }, 10000)
+    }
+
+    // set timeout for unlazy
+    const unlazyComplete = await isPromiseComplete(lastUnlazyTask)
+    if (unlazyComplete) {
+      const clone = structuredClone(options)
+      lastUnlazyTask = simpleUnlazyImage(clone)
+    }
+    const timeout = new Promise(resolve => setTimeout(resolve, 500))
+    const race = Promise.race([lastUnlazyTask, timeout])
+    return race
+  }
   function startUnlazy(options) {
     if (lastUnlazyTask === null) {
       processLazyPlaceholder()
       fakeUserHover()
+      checkPseudoCss()
       enableAutoScroll = getDomainSetting(options.autoScrollEnableList)
       disableImageUnlazy = getDomainSetting(options.imageUnlazyDisableList)
     }
@@ -1242,6 +1295,7 @@ window.ImageViewerUtils = (function () {
       const backupImageSrc = new Set(window.backupImageList.map(data => data.src))
       if (allImageSrc.intersection(backupImageSrc).size < 5) {
         unlazyFlag = false
+        scrollUnlazyFlag = false
         lastUnlazyTask = null
         window.backupImageList = []
         ImageViewer('reset_image_list')
@@ -1457,6 +1511,11 @@ window.ImageViewerUtils = (function () {
       }
     }
 
+    // pseudo element
+    for (const [url, dom] of pseudoImageDataList) {
+      imageDataList.push({src: url, dom})
+    }
+
     const uniqueDataList = processImageDataList(options, imageDataList)
     return uniqueDataList
   }
@@ -1513,6 +1572,13 @@ window.ImageViewerUtils = (function () {
       checkBackgroundSize(node, url)
     }
 
+    // pseudo element
+    for (const [url, dom, width, height] of pseudoImageDataList) {
+      if (width >= minWidth && height >= minHeight) {
+        imageDataList.push({src: url, dom})
+      }
+    }
+
     const uniqueDataList = processImageDataList(options, imageDataList)
     return uniqueDataList
   }
@@ -1553,7 +1619,15 @@ window.ImageViewerUtils = (function () {
     })
   }
 
-  // combine image list
+  // image search
+  function getDomUrl(dom) {
+    const tag = dom.tagName
+    if (tag === 'IMG') return dom.currentSrc || dom.src
+    if (tag === 'VIDEO') return dom.poster
+    const backgroundImage = window.getComputedStyle(dom).backgroundImage
+    const bgList = backgroundImage.split(', ').filter(bg => bg.startsWith('url') && !bg.endsWith('.svg")'))
+    return bgList.length !== 0 ? bgList[0].slice(5, -2) : ''
+  }
   function removeRepeatNonRaw(newList, oldList) {
     const tempList = newList.concat(oldList)
     const tempImageUrlSet = new Set(tempList.map(data => data.src))
@@ -1576,6 +1650,43 @@ window.ImageViewerUtils = (function () {
       if (url !== rawUrl && tempImageUrlSet.has(rawUrl)) {
         data.src = rawUrl
       }
+    }
+  }
+  function createImageIndexSearcher(srcList) {
+    function searchIndex(src) {
+      const index = srcIndexMap.get(src)
+      if (index !== undefined) return index
+      const rawIndex = srcIndexMap.get(getRawUrl(src))
+      if (index !== undefined) return rawIndex
+      const filename = getFilename(src)
+      const filenameIndex = srcIndexMap.get(filename)
+      if (filenameIndex !== undefined) return filenameIndex
+      return -1
+    }
+    function updateCache(srcList) {
+      for (let i = lastLength; i < srcList.length; i++) {
+        srcIndexMap.set(srcList[i], i)
+        // skip same filename
+        const filename = getFilename(srcList[i])
+        if (repeatFilename.has(filename) || srcIndexMap.has(filename)) {
+          repeatFilename.add(filename)
+          srcIndexMap.delete(filename)
+        } else {
+          srcIndexMap.set(filename, i)
+        }
+      }
+      lastLength = srcList.length
+    }
+
+    // assumes previous src unchange
+    let lastLength = 0
+    const srcIndexMap = new Map()
+    const repeatFilename = new Set()
+    updateCache(srcList)
+
+    return {
+      searchIndex: searchIndex,
+      updateCache: updateCache
     }
   }
 
@@ -1650,8 +1761,8 @@ window.ImageViewerUtils = (function () {
     },
 
     searchImageInfoIndex: function (input, imageList) {
-      const srcList = imageList.map(data => data.src)
       const src = input instanceof Element ? getDomUrl(input) : input
+      const srcList = imageList.map(data => data.src)
       const searcher = createImageIndexSearcher(srcList)
       const index = searcher.searchIndex(src)
       return index
